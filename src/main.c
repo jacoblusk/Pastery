@@ -11,14 +11,16 @@
 #include "utility.h"
 #include "error.h"
 
+#define TITLE "Pastery"
 #define PATH_SOCKET "/tmp/pastery.sock"
 #define TEMPLATE_FILE "templates/index.tmpl"
+
+void handle_get(FCGX_Request *request, FILE *out);
+void handle_post(FCGX_Request *request, FILE *out);
 
 int main(int argc, char **argv) {
 	int socket, result;
 	FCGX_Request request;
-	TMPL_varlist *tmpl_list;
-	char *tmpl_source;
 
 	socket = FCGX_OpenSocket(PATH_SOCKET, 10);
 	if(socket == -1)
@@ -33,36 +35,59 @@ int main(int argc, char **argv) {
 	if(result != 0)
 		handle_error("FCGX_InitRequest failed with %d\n", result);
 
-	tmpl_source = read_file(TEMPLATE_FILE);
-	tmpl_list = TMPL_add_var(NULL, "title", "Hello, world!", "body", "Hello, world!", NULL);
-
 	while(FCGX_Accept_r(&request) == 0) {
 		FILE *out;
-		char *out_buf, *request_body, *decoded_body;
+		char *out_buf, *method;
 		size_t out_buf_size;
 
 		out = open_memstream(&out_buf, &out_buf_size);
 		if(out == NULL)
 			handle_perror("open_memstream");
 
-		fprintf(out, "Content-Type: text/html\r\n\r\n");
-		TMPL_write(NULL, tmpl_source, NULL, tmpl_list, out, stderr); 
-		fprintf(out, "\r\n");
-		request_body = read_body(&request, NULL);
-		if(request_body != NULL) {
-			decoded_body = url_decode(request_body);
-			printf("body: %s => %s\n", request_body, decoded_body);
+		method = FCGX_GetParam("REQUEST_METHOD", request.envp);
+
+		if(method != NULL) {
+			if(strcmp(method, "GET") == 0) {
+				handle_get(&request, out);
+			} else if(strcmp(method, "POST") == 0) {
+				handle_post(&request, out);
+			} else {
+				fprintf(out, "Status-Code: 400\r\n\r\n\r\n");
+			}
 		}
-		parse_document_uri(&request);
+
 		fclose(out);
 		FCGX_FPrintF(request.out, out_buf);
-
 		FCGX_Finish_r(&request);
-		free(request_body);
-		free(decoded_body);
 		free(out_buf);
 	}
 	
-	TMPL_free_varlist(tmpl_list);
 	return EXIT_SUCCESS;
+}
+
+void handle_get(FCGX_Request *request, FILE *out) {
+	TMPL_varlist *tmpl_var_list;
+	char *tmpl_source;
+
+	tmpl_source = read_file(TEMPLATE_FILE);
+	tmpl_var_list = TMPL_add_var(NULL, "title", TITLE, NULL);
+	fprintf(out, "Content-Type: text/html\r\n\r\n");
+	TMPL_write(NULL, tmpl_source, NULL, tmpl_var_list, out, stderr);
+	TMPL_free_varlist(tmpl_var_list);
+	fprintf(out, "\r\n");
+}
+
+void handle_post(FCGX_Request *request, FILE *out) {
+	char *request_body, *decoded_body;
+
+	fprintf(out, "Location: /test\r\n\r\n\r\n");
+	request_body = read_body(request, NULL);
+	if(request_body != NULL) {
+		decoded_body = url_decode(request_body);
+		printf("body: %s => %s\n", request_body, decoded_body);
+	}
+	parse_document_uri(request);
+
+	free(request_body);
+	free(decoded_body);
 }
