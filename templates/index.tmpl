@@ -1,0 +1,11 @@
+<html>
+	<title><TMPL_VAR name="title"></title>
+	<head>
+		<link rel="stylesheet" type="text/css" href="/static/bin/pastery.css">
+	</head>
+	<body>
+		<form id="save" action="/test/save" method="post"></form>
+		<button form="save">save</button>
+		<textarea name="text" spellcheck="false" form="save"><TMPL_VAR name="body"></textarea>
+	</body>
+</html>
