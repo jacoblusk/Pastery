@@ -7,20 +7,41 @@
 #include <fcgiapp.h>
 #include <fcgi_stdio.h>
 #include <ctemplate.h>
+#include <hiredis/hiredis.h>
 
 #include "utility.h"
 #include "error.h"
+#include "generator.h"
 
 #define TITLE "Pastery"
 #define PATH_SOCKET "/tmp/pastery.sock"
 #define TEMPLATE_FILE "templates/index.tmpl"
+#define KEY_LENGTH 7
+
+#define REDIS_HOST "127.0.0.1"
+#define REDIS_PORT 6379
 
 void handle_get(FCGX_Request *request, FILE *out);
 void handle_post(FCGX_Request *request, FILE *out);
 
+redisContext *redis_context;
+
 int main(int argc, char **argv) {
 	int socket, result;
 	FCGX_Request request;
+
+	generator_init();
+	struct timeval timeout = { 1, 500000 };
+	redis_context = redisConnectWithTimeout(REDIS_HOST, REDIS_PORT, timeout);
+	if ( !redis_context || redis_context->err) {
+		if(redis_context) {
+			printf("Connection error: %s\n", redis_context->errstr);
+			redisFree(redis_context);
+		} else {
+			printf("Connection error: can't allocate redis context\n");
+		}
+		handle_error("unable to connect to redis");
+	}
 
 	socket = FCGX_OpenSocket(PATH_SOCKET, 10);
 	if(socket == -1)
@@ -45,7 +66,7 @@ int main(int argc, char **argv) {
 			handle_perror("open_memstream");
 
 		method = FCGX_GetParam("REQUEST_METHOD", request.envp);
-
+		printf("method %s\n", method);
 		if(method != NULL) {
 			if(strcmp(method, "GET") == 0) {
 				handle_get(&request, out);
@@ -78,16 +99,18 @@ void handle_get(FCGX_Request *request, FILE *out) {
 }
 
 void handle_post(FCGX_Request *request, FILE *out) {
-	char *request_body, *decoded_body;
-
+	char *request_body, *decoded_body, *key;
 	fprintf(out, "Location: /test\r\n\r\n\r\n");
 	request_body = read_body(request, NULL);
 	if(request_body != NULL) {
 		decoded_body = url_decode(request_body);
+		key = generator_generate(KEY_LENGTH);
+		printf("key: %s\n", key);
 		printf("body: %s => %s\n", request_body, decoded_body);
 	}
-	parse_document_uri(request);
 
+	parse_document_uri(request);
+	free(key);
 	free(request_body);
 	free(decoded_body);
 }
