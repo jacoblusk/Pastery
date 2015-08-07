@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
 		}
 
 		fclose(out);
-		FCGX_FPrintF(request.out, out_buf);
+		FCGX_PutS(out_buf, request.out);
 		FCGX_Finish_r(&request);
 		free(out_buf);
 	}
@@ -103,7 +103,7 @@ void handle_get(FCGX_Request *request, FILE *out) {
 		}
 		else if(reply->str != NULL) {
 			printf("reply: %s\n", reply->str);
-			tmpl_var_list = TMPL_add_var(tmpl_var_list, "body", reply->str, NULL);
+			tmpl_var_list = TMPL_add_var(tmpl_var_list, "body", url_decode(reply->str), NULL);
 		}
 		freeReplyObject(reply);
 	}
@@ -134,10 +134,9 @@ void handle_post(FCGX_Request *request, FILE *out) {
 			}
 			else break;
 		}
-		reply = redisCommand(redis_context, "SET %s %s", key, decoded_body + 5);
+		reply = redisCommand(redis_context, "SET %s %s", key, request_body + 5);
 		fprintf(out, "Location: /test/%s\r\n\r\n\r\n", key);
 		printf("key: %s\n", key);
-		printf("body: %s => %s\n", request_body, decoded_body);
 	}
 
 	freeReplyObject(reply);
