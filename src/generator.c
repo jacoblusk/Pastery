@@ -19,7 +19,6 @@ char *generator_generate(int length) {
 	for(int i = 0; i < length; i++) {
 		key[i] = (i % 2 == start) ?
 			VOWELS[rand() % (sizeof(VOWELS) - 1)] : CONSONANTS[rand() % (sizeof(CONSONANTS) - 1)];
-			printf("key[%d] => %c\n", i, key[i]);
 	}
 	key[length] = '\0';
 	return key;

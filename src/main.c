@@ -24,7 +24,7 @@
 void handle_get(FCGX_Request *request, FILE *out);
 void handle_post(FCGX_Request *request, FILE *out);
 
-redisContext *redis_context;
+static redisContext *redis_context;
 
 int main(int argc, char **argv) {
 	int socket, result;
@@ -89,27 +89,58 @@ int main(int argc, char **argv) {
 void handle_get(FCGX_Request *request, FILE *out) {
 	TMPL_varlist *tmpl_var_list;
 	char *tmpl_source;
+	redisReply *reply;
+	char **parts = NULL;
+	size_t parts_length;
 
 	tmpl_source = read_file(TEMPLATE_FILE);
 	tmpl_var_list = TMPL_add_var(NULL, "title", TITLE, NULL);
+	parts = parse_document_uri(request, &parts_length);
+	if(parts != NULL && parts_length >= 2){
+		reply = redisCommand(redis_context, "GET %s", parts[1]);
+		if(reply == NULL) {
+			handle_error("error with redis command");
+		}
+		else if(reply->str != NULL) {
+			printf("reply: %s\n", reply->str);
+			tmpl_var_list = TMPL_add_var(tmpl_var_list, "body", reply->str, NULL);
+		}
+		freeReplyObject(reply);
+	}
 	fprintf(out, "Content-Type: text/html\r\n\r\n");
 	TMPL_write(NULL, tmpl_source, NULL, tmpl_var_list, out, stderr);
 	TMPL_free_varlist(tmpl_var_list);
 	fprintf(out, "\r\n");
+	printf("test");
+	free_parsed_document(parts);
 }
 
 void handle_post(FCGX_Request *request, FILE *out) {
-	char *request_body, *decoded_body, *key;
-	fprintf(out, "Location: /test\r\n\r\n\r\n");
+	char *request_body = NULL, *decoded_body = NULL, *key = NULL;
+	redisReply *reply = NULL;
 	request_body = read_body(request, NULL);
 	if(request_body != NULL) {
 		decoded_body = url_decode(request_body);
-		key = generator_generate(KEY_LENGTH);
+		//Find an unused key
+		for(;;) {
+			key = generator_generate(KEY_LENGTH);
+			reply = redisCommand(redis_context, "EXISTS %s", key);
+			if(reply != NULL && reply->integer) {
+				freeReplyObject(reply);
+				free(key);
+			}
+			else if(reply == NULL) {
+				handle_error("redis error");
+			}
+			else break;
+		}
+		reply = redisCommand(redis_context, "SET %s %s", key, decoded_body + 5);
+		fprintf(out, "Location: /test/%s\r\n\r\n\r\n", key);
 		printf("key: %s\n", key);
 		printf("body: %s => %s\n", request_body, decoded_body);
 	}
 
-	parse_document_uri(request);
+	freeReplyObject(reply);
 	free(key);
 	free(request_body);
 	free(decoded_body);
