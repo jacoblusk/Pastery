@@ -1,6 +1,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <limits.h>
 #include "utility.h"
 #include "strbuilder.h"
 #include "error.h"
@@ -104,6 +105,11 @@ char **parse_document_uri(FCGX_Request *request, size_t *parts_length) {
 
 	if(count == 0) 
 		return NULL;
+	if((count + 1) > LONG_MAX / sizeof(char *)) {
+		handle_warn("count would overflow");
+		return NULL;
+	}
+
 	parts = malloc(sizeof(char *) * (count + 1));
 	ptr = strtok(document_uri + 1, "/");
 	parts[count] = NULL;
@@ -159,6 +165,10 @@ char *read_body(FCGX_Request *request, size_t *length) {
 	content_length = strtol(content_length_s, NULL, 10);
 	if(content_length <= 0)
 		return NULL;
+	if((content_length + 1) > LONG_MAX / sizeof(char)) {
+		handle_warn("content length would overflow");
+		return NULL;
+	}
 	body = malloc(sizeof(char) * (content_length + 1));
 	if(body == NULL)
 		handle_perror("malloc");
