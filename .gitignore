@@ -1,8 +1,11 @@
-#object files
-*.o
-
-#executable
-pastery*
-
-#vim swap files
-*.s[a-w][a-z]
+*.sw?
+*.dSYM
+*.rdb
+*.supp
+obj
+pyg
+pyg.c
+*.py
+.clang_complete
+test.html
+pastery

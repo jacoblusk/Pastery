@@ -95,7 +95,6 @@ int main(int argc, char **argv) {
 void handle_get(FCGX_Request *request, FILE *out) {
 	TMPL_varlist *tmpl_var_list;
 	char *tmpl_source;
-	redisReply *reply;
 	char **parts = NULL;
 	size_t parts_length;
 	char *highlighted = NULL;
@@ -148,17 +147,21 @@ void handle_post(FCGX_Request *request, FILE *out) {
 		if(postid != NULL && body == NULL) {
 			char *tmpl_source = NULL;
 			printf("value: %s\n", postid);
-			const char *value = get_value_from_redis(postid);
+			char *value = get_value_from_redis(postid);
 			if(value == NULL)
 				break;
+
+			char *encoded_value = html_encode(value);
 			TMPL_varlist *tmpl_var_list = NULL;
 			tmpl_source = read_file(TEMPLATE_FILE);
 			tmpl_var_list = TMPL_add_var(NULL, "title", TITLE, NULL);
 			tmpl_var_list = TMPL_add_var(tmpl_var_list, "body",
-					value, NULL);
+					encoded_value, NULL);
 			fprintf(out, "Content-Type: text/html\r\n\r\n");
 			TMPL_write(NULL, tmpl_source, NULL, tmpl_var_list, out, stderr);
 			TMPL_free_varlist(tmpl_var_list);
+			free(value);
+			free(encoded_value);
 			break;
 		}
 
