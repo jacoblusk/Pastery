@@ -67,30 +67,134 @@ char *url_decode(const char *src) {
 	return ret_dst;
 }
 
+struct pair *parse_pairs(const char *data) {
+	struct pair *pairs = malloc(sizeof(struct pair));
+	if(!pairs) {
+		goto fail;  // allocation failure
+	}
+	pairs->name = NULL;
+	pairs->value = NULL;
+	if(!data) {
+		return pairs;
+	}
+	size_t pairs_used = 1;
+	size_t pairs_cap = 1;
+	while(*data) {
+		const char *pair_end = strchr(data, '&');
+		if(pair_end == NULL) {
+			pair_end = data + strlen(data);
+		}
+		if(pairs_used == SIZE_MAX) {
+			return NULL;  // impossible overflow
+		}
+		pairs_used++;
+		while(pairs_used > pairs_cap) {
+			if(pairs_cap * 2 < pairs_cap) {
+				goto fail;  // overflow
+			}
+			pairs_cap *= 2;
+			if(pairs_cap >= SIZE_MAX / sizeof(struct pair)) {
+				goto fail;  // overflow
+			}
+			struct pair *new_pairs = realloc(pairs,
+				pairs_cap * sizeof(struct pair));
+			if(new_pairs == NULL) {
+				goto fail;  // allocation failure
+			}
+			pairs = new_pairs;
+		}
+		struct pair *pair = &pairs[pairs_used - 2];
+		pair[1].name = NULL;
+		pair[1].value = NULL;
+		const char *equals = memchr(data, '=', pair_end - data);
+		const char *name_end;
+		const char *value_start;
+		if(equals == NULL) {
+			name_end = pair_end;
+			value_start = NULL;
+		}else{
+			name_end = equals;
+			value_start = equals + 1;
+		}
+		char *undec_name_copy = malloc(name_end - data + 1);
+		if(undec_name_copy == NULL) {
+			goto fail;  // allocation failure
+		}
+		memcpy(undec_name_copy, data, name_end - data);
+		undec_name_copy[name_end - data] = '\0';
+		char *name_copy = url_decode(undec_name_copy);
+		if(name_copy == NULL) {
+			// decode failure
+			free(undec_name_copy), undec_name_copy = NULL;  // not pair-owned
+			goto fail;
+		}
+		free(undec_name_copy), undec_name_copy = NULL;
+		pair->name = name_copy;  // name now owned by pairs
+		if(value_start) {
+			char *undec_value_copy = malloc(pair_end - value_start + 1);
+			if(undec_value_copy == NULL) {
+				goto fail;  // allocation failure
+			}
+			memcpy(undec_value_copy, value_start, pair_end - value_start);
+			undec_value_copy[pair_end - value_start] = '\0';
+			char *value_copy = url_decode(undec_value_copy);
+			if(value_copy == NULL) {
+				// decode failure
+				free(undec_value_copy), undec_value_copy = NULL;  // not pair-owned
+				goto fail;
+			}
+			pair->value = value_copy;
+		}
+		data = *pair_end == '&' ? pair_end + 1 : pair_end;
+	}
+	return pairs;
+fail:
+	free_pairs(pairs);
+	return NULL;
+}
+
+void free_pairs(struct pair *pairs) {
+	if(!pairs) {
+		return;
+	}
+	struct pair *orig = pairs;
+	while(pairs->name) {
+		free(pairs->name);
+		free(pairs->value);
+		pairs++;
+	}
+	free(orig);
+}
+
+char *get_pair_value(struct pair *pairs, const char *name) {
+	for(; pairs->name; pairs++) {
+		if(strcmp(pairs->name, name) == 0) {
+			return pairs->value;
+		}
+	}
+	return NULL;
+}
+
 void free_parsed_document(char **parts) {
 	//TODO: fix bug here
-	return;
-	if(parts == NULL)
-		return;
-	char *part = *(parts);
-	while(part != NULL) {
-		char *temp = part;
-		part = *(parts++);
-		free(temp);
+	char **orig = parts;
+	while(*parts) {
+		free(*parts), *parts++ = NULL;
 	}
+	free(orig);
 }
 
 char **parse_document_uri(FCGX_Request *request, size_t *parts_length) {
 	char *document_uri, *const_uri, **parts;
 	char *ptr;
-	size_t count, length, last_index, index;
+	size_t count, length, index;
 
 	count = 0;
 	const_uri = FCGX_GetParam("DOCUMENT_URI", request->envp);
+	document_uri = malloc(strlen(const_uri) + 1);
 	if(document_uri == NULL)
 		return NULL;
 
-	document_uri = malloc(strlen(const_uri));
 	strcpy(document_uri, const_uri);
 	ptr = document_uri;
 	while(*ptr != '\0') {
@@ -105,7 +209,7 @@ char **parse_document_uri(FCGX_Request *request, size_t *parts_length) {
 
 	if(count == 0) 
 		return NULL;
-	if((count + 1) > LONG_MAX / sizeof(char *)) {
+	if((count + 1) > SIZE_MAX / sizeof(char *)) {
 		handle_warn("count would overflow");
 		return NULL;
 	}
@@ -117,7 +221,7 @@ char **parse_document_uri(FCGX_Request *request, size_t *parts_length) {
 	while(ptr != NULL && index <= count) {
 		int strlength = strlen(ptr);
 		if(strlength > 0) {
-			parts[index] = malloc(sizeof(char) * strlength);
+			parts[index] = malloc(sizeof(char) * strlength + 1);
 			memcpy(parts[index], ptr, strlength);
 			parts[index][strlength] = '\0';
 			ptr = strtok(NULL, "/");
@@ -149,23 +253,25 @@ char *read_file(const char *filename) {
 	amt_read = fread(source, sizeof(char), buf_size, file);
 	if(amt_read == 0)
 		handle_perror("fread");
-	source[amt_read + 1] = '\0';
+	source[amt_read] = '\0';
 	fclose(file);
 	return source;
 }
 
 char *read_body(FCGX_Request *request, size_t *length) {
 	char *content_length_s;
-	int content_length, amt_read;
+	long content_length_l;
+	size_t content_length, amt_read;
 	char *body;
 
 	content_length_s = FCGX_GetParam("CONTENT_LENGTH", request->envp);
 	if(content_length_s == NULL)
 		return NULL;
-	content_length = strtol(content_length_s, NULL, 10);
-	if(content_length <= 0)
+	content_length_l = strtol(content_length_s, NULL, 10);
+	if(content_length_l <= 0)
 		return NULL;
-	if((content_length + 1) > LONG_MAX / sizeof(char)) {
+	content_length = content_length_l;
+	if(content_length > SIZE_MAX / sizeof(char) - 1) {
 		handle_warn("content length would overflow");
 		return NULL;
 	}

@@ -2,10 +2,19 @@
 	<title><TMPL_VAR name="title"></title>
 	<head>
 		<link rel="stylesheet" type="text/css" href="/static/bin/pastery.css">
+		<link rel="stylesheet" type="text/css" href="/static/bin/color.css">
 	</head>
 	<body>
-		<form id="save" action="/test/save" method="post"></form>
-		<button form="save">save</button>
-		<textarea name="text" spellcheck="false" form="save"><TMPL_VAR name="body"></textarea>
+		<TMPL_IF name="mode" value="view">
+			<form id="edit" action="/fcgi/edit" method="post"></form>
+			<input type=hidden form="edit" name="postid" value="<TMPL_VAR name="postid">">
+			</input>
+			<button form="edit">edit</button>
+			<TMPL_VAR name="body">
+		<TMPL_ELSE>
+			<form id="save" action="/fcgi/save" method="post"></form>
+			<button form="save">save</button>
+			<textarea name="text" spellcheck="false" form="save"><TMPL_VAR name="body"></textarea>
+		</TMPL_IF>
 	</body>
 </html>
